@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Költségvetés App - Intelligens Mezőkkel</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --primary: #1877f2; --success: #00a400; --danger: #ff4d4d; --bg: #f0f2f5; --disabled: #b0b3b8; }
+        body { font-family: 'Segoe UI', sans-serif; background-color: var(--bg); margin: 0; display: flex; }
+        #sidebar { position: fixed; left: -250px; top: 0; width: 250px; height: 100%; background: #2c3e50; color: white; transition: 0.3s; z-index: 1000; padding: 20px; box-sizing: border-box; }
+        #sidebar.active { left: 0; }
+        .menu-btn { position: fixed; top: 15px; left: 15px; font-size: 24px; cursor: pointer; background: var(--primary); color: white; border: none; padding: 5px 12px; border-radius: 5px; z-index: 1001; }
+        .overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999; }
+        .overlay.active { display: block; }
+        .container { flex-grow: 1; max-width: 1100px; margin: 60px auto 20px auto; background: white; padding: 25px; border-radius: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .section { margin-bottom: 25px; padding: 15px; border: 1px solid #e4e6eb; border-radius: 10px; position: relative; }
+        .lock-notice { display: none; background: #fff3cd; color: #856404; padding: 8px; border-radius: 6px; text-align: center; margin-bottom: 15px; font-weight: bold; font-size: 0.9rem; }
+        .rate-bar { text-align: center; font-size: 11px; color: #65676b; margin-bottom: 10px; font-weight: bold; }
+        .input-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+        .field-group { display: flex; flex-direction: column; gap: 4px; }
+        label { font-size: 0.8rem; font-weight: bold; color: #65676b; }
+        input, select { padding: 8px; border: 1px solid #dddfe2; border-radius: 6px; }
+        button { padding: 10px 15px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        button:disabled { background: var(--disabled); cursor: not-allowed; }
+        .save-btn { background: var(--success); }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; }
+        .stat-card { background: #f8f9fa; padding: 15px; border-radius: 10px; text-align: center; border: 1px solid #dee2e6; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.85rem; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #e4e6eb; }
+        .del-btn { background: var(--danger); font-size: 10px; padding: 4px 6px; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <button class="menu-btn" onclick="toggleMenu()">☰</button>
+    <div class="overlay" id="overlay" onclick="toggleMenu()"></div>
+
+    <div id="sidebar">
+        <h3>Beállítások</h3>
+        <div class="field-group">
+            <label style="color:white">Időszak választó:</label>
+            <select id="honap-szuro" onchange="frissitMindent()" style="width: 100%; margin-top: 10px;">
+                <option value="all">Egész év</option>
+                <option value="0">Január</option><option value="1">Február</option><option value="2">Március</option>
+                <option value="3">Április</option><option value="4">Május</option><option value="5">Június</option>
+                <option value="6">Július</option><option value="7">Augusztus</option><option value="8">Szeptember</option>
+                <option value="9">Október</option><option value="10">November</option><option value="11">December</option>
+            </select>
+        </div>
+        <br><br>
+        <button onclick="teljesTorles()" style="background: #444; width: 100%;">Összes adat törlése</button>
+    </div>
+
+    <div class="container">
+        <h2 id="fo-cim" style="color:var(--primary); text-align:center;">Költségvetés</h2>
+        <div id="rate-info" class="rate-bar">Árfolyamok betöltése...</div>
+        <div id="lock-msg" class="lock-notice">⚠️ ARCHÍVUM: Csak az aktuális hónap módosítható!</div>
+
+        <div class="section">
+            <div class="input-row">
+                <div class="field-group">
+                    <label>Bevétel hozzáadása</label>
+                    <div style="display:flex; gap:5px;">
+                        <input type="number" id="bevetel-input" placeholder="Összeg" min="0">
+                        <select id="bevetel-valuta"><option value="HUF">Ft</option><option value="EUR">€</option><option value="USD">$</option></select>
+                    </div>
+                </div>
+                <button id="bevetel-btn" onclick="bevetelHozzaadasa()">Hozzáadás</button>
+            </div>
+        </div>
+
+        <div class="section stats-grid">
+            <div class="stat-card"><h4>Bevétel</h4><p id="stat-bevetel" style="color: var(--success);">0 Ft</p></div>
+            <div class="stat-card"><h4>Kiadás</h4><p id="stat-kiadas" style="color: var(--danger);">0 Ft</p></div>
+            <div class="stat-card"><h4>Mérleg</h4><p id="stat-egyenleg">0 Ft</p></div>
+        </div>
+
+        <div class="section">
+            <h3>Új kiadás</h3>
+            <div class="input-row">
+                <div class="field-group"><label>Helyszín</label><input type="text" id="helyszin" list="helyszin-lista" placeholder="Bolt"></div>
+                <div class="field-group">
+                    <label>Kategória</label>
+                    <select id="kategoria">
+                        <option value="Vásárlás">Vásárlás</option><option value="Rezsi">Rezsi</option>
+                        <option value="Szórakozás">Szórakozás</option><option value="Utazás">Utazás</option>
+                        <option value="Egyéb">Egyéb</option>
+                    </select>
+                </div>
+                <div class="field-group">
+                    <label>Fizetési mód</label>
+                    <select id="mod" onchange="toggleBank()">
+                        <option value="Készpénz">Készpénz</option><option value="Kártya">Kártya</option>
+                    </select>
+                </div>
+                <div class="field-group" id="bank-div" style="display:none;">
+                    <label>Bank/Kártya</label><input type="text" id="bank" list="bank-lista" placeholder="Pl. OTP">
+                </div>
+                <div class="field-group">
+                    <label>Összeg</label>
+                    <div style="display:flex; gap:5px;">
+                        <input type="number" id="osszeg" style="width:80px;" min="0">
+                        <select id="kiadas-valuta"><option value="HUF">Ft</option><option value="EUR">€</option><option value="USD">$</option></select>
+                    </div>
+                </div>
+                <button id="mentes-btn" class="save-btn" onclick="mentes()">Mentés</button>
+            </div>
+        </div>
+
+        <datalist id="helyszin-lista"></datalist>
+        <datalist id="bank-lista"></datalist>
+
+        <div class="section" style="height: 250px;"><canvas id="pieChart"></canvas></div>
+
+        <div class="section">
+            <h3>Tételek</h3>
+            <div style="overflow-x: auto;">
+                <table>
+                    <thead><tr><th>Dátum</th><th>Helyszín</th><th>Mód</th><th>Összeg (Eredeti)</th><th>Összeg (Ft)</th><th>Művelet</th></tr></thead>
+                    <tbody id="lista-test"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+<script>
+    let pieChart;
+    let rates = { EUR: 400, USD: 370, HUF: 1 };
+    const maiDatum = new Date();
+    const aktualisHonapIndex = maiDatum.getMonth();
+
+    window.onload = function() {
+        document.getElementById('honap-szuro').value = aktualisHonapIndex;
+        frissitArfolyamok();
+        betoltJavaslatok(); // Javaslatok betöltése indításkor
+        frissitMindent();
+    };
+
+    async function frissitArfolyamok() {
+        try {
+            const res = await fetch('https://open.er-api.com/v6/latest/HUF');
+            const data = await res.json();
+            if (data?.rates) {
+                rates.EUR = (1 / data.rates.EUR).toFixed(1);
+                rates.USD = (1 / data.rates.USD).toFixed(1);
+                document.getElementById('rate-info').innerText = `Élő árfolyam: 1€ = ${rates.EUR} Ft | 1$ = ${rates.USD} Ft`;
+                frissitMindent();
+            }
+        } catch (e) { document.getElementById('rate-info').innerText = "Árfolyamok: Offline mód"; }
+    }
+
+    function toggleMenu() {
+        document.getElementById('sidebar').classList.toggle('active');
+        document.getElementById('overlay').classList.toggle('active');
+    }
+
+    function toggleBank() {
+        document.getElementById('bank-div').style.display = (document.getElementById('mod').value === 'Kártya') ? 'block' : 'none';
+    }
+
+    // ÚJ: JAVASLATOK MENTÉSE ÉS BETÖLTÉSE
+    function mentJavaslat(id, ertek) {
+        if (!ertek) return;
+        let lista = JSON.parse(localStorage.getItem(id)) || [];
+        if (!lista.includes(ertek)) {
+            lista.push(ertek);
+            localStorage.setItem(id, JSON.stringify(lista));
+            betoltJavaslatok();
+        }
+    }
+
+    function betoltJavaslatok() {
+        const helyek = JSON.parse(localStorage.getItem('hely_mem')) || [];
+        const bankok = JSON.parse(localStorage.getItem('bank_mem')) || [];
+        document.getElementById('helyszin-lista').innerHTML = helyek.map(h => `<option value="${h}">`).join('');
+        document.getElementById('bank-lista').innerHTML = bankok.map(b => `<option value="${b}">`).join('');
+    }
+
+    function bevetelHozzaadasa() {
+        const bevInput = document.getElementById('bevetel-input');
+        const valuta = document.getElementById('bevetel-valuta').value;
+        const osszeg = parseFloat(bevInput.value) || 0;
+        if(osszeg <= 0) return alert("Hiba: Csak pozitív összeget adhatsz hozzá!");
+
+        const ertekFt = osszeg * rates[valuta];
+        const uj = { id: Date.now(), ertekFt: ertekFt, eredeti: `${osszeg} ${valuta}`, datum: new Date().toISOString() };
+        let bev = JSON.parse(localStorage.getItem('bev_v8')) || [];
+        bev.push(uj);
+        localStorage.setItem('bev_v8', JSON.stringify(bev));
+        bevInput.value = '';
+        frissitMindent();
+    }
+
+    function mentes() {
+        const hely = document.getElementById('helyszin').value;
+        const osszegInput = document.getElementById('osszeg');
+        const osszeg = parseFloat(osszegInput.value) || 0;
+        const valuta = document.getElementById('kiadas-valuta').value;
+        const mod = document.getElementById('mod').value;
+        const bank = document.getElementById('bank').value;
+
+        if (!hely || osszeg <= 0) return alert("Hiányzó vagy érvénytelen adatok!");
+
+        const ujErtekFt = osszeg * rates[valuta];
+        const bevetelek = JSON.parse(localStorage.getItem('bev_v8')) || [];
+        const kiadasok = JSON.parse(localStorage.getItem('kiad_v8')) || [];
+        const osszBevetel = bevetelek.reduce((sum, b) => sum + b.ertekFt, 0);
+        const osszKiadas = kiadasok.reduce((sum, k) => sum + k.ertekFt, 0);
+        const aktualisEgyenleg = osszBevetel - osszKiadas;
+
+        if (ujErtekFt > aktualisEgyenleg) {
+            return alert(`Hiba: Nincs elég fedezet! \nEgyenleg: ${Math.round(aktualisEgyenleg).toLocaleString()} Ft`);
+        }
+
+        // Javaslatok mentése
+        mentJavaslat('hely_mem', hely);
+        if(mod === 'Kártya') mentJavaslat('bank_mem', bank);
+
+        const uj = { 
+            id: Date.now(), datumISO: new Date().toISOString(),
+            hely, kat: document.getElementById('kategoria').value, 
+            ertekFt: ujErtekFt, eredeti: `${osszeg} ${valuta}`,
+            mod: mod === 'Kártya' ? `Kártya (${bank || '?'})` : 'Készpénz'
+        };
+
+        kiadasok.push(uj);
+        localStorage.setItem('kiad_v8', JSON.stringify(kiadasok));
+        document.getElementById('helyszin').value = '';
+        document.getElementById('bank').value = '';
+        osszegInput.value = '';
+        frissitMindent();
+    }
+
+    function tetelTorlese(id) {
+        if(!confirm("Törlöd?")) return;
+        let adatok = JSON.parse(localStorage.getItem('kiad_v8')) || [];
+        localStorage.setItem('kiad_v8', JSON.stringify(adatok.filter(t => t.id !== id)));
+        frissitMindent();
+    }
+
+    function frissitMindent() {
+        const szuro = document.getElementById('honap-szuro').value;
+        const isLocked = (szuro === 'all' || parseInt(szuro) !== aktualisHonapIndex);
+        document.getElementById('bevetel-btn').disabled = isLocked;
+        document.getElementById('mentes-btn').disabled = isLocked;
+        document.getElementById('lock-msg').style.display = isLocked ? 'block' : 'none';
+
+        const kiadasok = JSON.parse(localStorage.getItem('kiad_v8')) || [];
+        const bevetelek = JSON.parse(localStorage.getItem('bev_v8')) || [];
+        const honapok = ["Január", "Február", "Március", "Április", "Május", "Június", "Július", "Augusztus", "Szeptember", "Október", "November", "December"];
+        
+        document.getElementById('fo-cim').innerText = szuro === 'all' ? "Egész év" : honapok[szuro];
+
+        let idBev = 0, idKia = 0;
+        const katStat = { "Vásárlás": 0, "Rezsi": 0, "Szórakozás": 0, "Utazás": 0, "Egyéb": 0 };
+        const tabla = document.getElementById('lista-test');
+        tabla.innerHTML = '';
+
+        bevetelek.forEach(b => { if (szuro === 'all' || new Date(b.datum).getMonth() == szuro) idBev += b.ertekFt; });
+
+        [...kiadasok].reverse().forEach(t => {
+            const d = new Date(t.datumISO);
+            if (szuro === 'all' || d.getMonth() == szuro) {
+                idKia += t.ertekFt;
+                katStat[t.kat] += t.ertekFt;
+                tabla.innerHTML += `<tr>
+                    <td>${d.toLocaleDateString('hu-HU')}</td>
+                    <td>${t.hely}</td>
+                    <td>${t.mod}</td>
+                    <td>${t.eredeti}</td>
+                    <td>${Math.round(t.ertekFt).toLocaleString()} Ft</td>
+                    <td><button class="del-btn" onclick="tetelTorlese(${t.id})" ${isLocked ? 'disabled' : ''}>X</button></td>
+                </tr>`;
+            }
+        });
+
+        document.getElementById('stat-bevetel').innerText = `${Math.round(idBev).toLocaleString()} Ft`;
+        document.getElementById('stat-kiadas').innerText = `${Math.round(idKia).toLocaleString()} Ft`;
+        const merleg = idBev - idKia;
+        document.getElementById('stat-egyenleg').innerText = `${Math.round(merleg).toLocaleString()} Ft`;
+        document.getElementById('stat-egyenleg').style.color = merleg >= 0 ? 'var(--success)' : 'var(--danger)';
+        frissitGrafikon(katStat);
+    }
+
+    function frissitGrafikon(katAdatok) {
+        if (pieChart) pieChart.destroy();
+        const ctx = document.getElementById('pieChart').getContext('2d');
+        pieChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(katAdatok),
+                datasets: [{ data: Object.values(katAdatok), backgroundColor: ['#3498db', '#f1c40f', '#9b59b6', '#e67e22', '#bdc3c7'] }]
+            },
+            options: { maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+        });
+    }
+
+    function teljesTorles() { if(confirm("Minden adat törlődik!")) { localStorage.clear(); location.reload(); } }
+</script>
+</body>
+</html>
